@@ -54,7 +54,7 @@ def Funcoes_botao(entrada):
          print("URL inválida! Por favor, insira uma URL válida.")
          return
         
-        ListarFormatos(url)
+       # ListarFormatos(url)
         Update_progress()
         Download(url)
 
@@ -102,74 +102,78 @@ def Update_progress():
     progress.destroy()
 
 
-def Download(url):  
-     
-     # Definindo as opções do ydl_opts para vídeo e áudio
-     ydl_opts = {
-            'format': 'best',  # Baixar o melhor formato de vídeo e áudio
-            'outtmpl': 'downloads/%(title)s.%(ext)s',  # Nome do arquivo de saída
-            'merge_output_format': 'mp4', # Converte para MP4
-            'preferredcodec': 'mp4',  # Formato final
-        }
-    
-     if legendas.get():
-        ydl_opts.update({'writesubtitles': True,  # Baixar legenda
-    'writeautomaticsub': True, # Baixar legendas automatica
-    'subtitleslangs': ['pt'],  # Idiomas das legendas (substitua 'en' por 'pt', 'es', etc.)
-    'subtitlesformat': 'srt',   # Formato das legendas (ex.: 'srt', 'vtt')
-    })
+def Download(url):
 
+    dominio = urlparse(url).netloc
 
-     dominio = urlparse(url).netloc
-     if "youtube.com" in dominio or "youtu.be" in dominio:
+    # CONFIGURAÇÃO PADRÃO (OUTRAS PLATAFORMAS)
+    ydl_opts = {
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'external_downloader': 'ffmpeg',
+        'hls_prefer_native': False,
+        'ffmpeg_location': r'C:\ProgramData\chocolatey\bin\ffmpeg.exe',
+    }
+
+    # LEGENDAS
+    if legendas.get():
         ydl_opts.update({
-            'format': 'bestvideo+bestaudio',
-            'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
-             })
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['pt'],
+            'subtitlesformat': 'srt',
+        })
 
-     if apenas_audio.get():  # Se a opção "apenas áudio" estiver selecionada
+    # YOUTUBE
+    if "youtube.com" in dominio or "youtu.be" in dominio:
 
-         ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+        # REMOÇÃO OBRIGATÓRIA PARA YOUTUBE
+        ydl_opts.pop('external_downloader', None)
+        ydl_opts.pop('hls_prefer_native', None)
 
-         if "youtube.com" in dominio or "youtu.be" in dominio:
-          ydl_opts.update({
-            'format': 'bestaudio',
-            'merge_output_format': 'mp3',
-            'preferredquality': '192',
-             })
+        if apenas_audio.get():
+            ydl_opts.update({
+                'format': 'bestaudio[ext=m4a][protocol!=m3u8]/bestaudio',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
+            })
 
-   
-        # ydl_opts['postprocessor_args'] = [
-           #     '-ss',"00:06:29"  # Define o tempo de início
-          #  ]
+        else:
+            ydl_opts.update({
+                'format': '(bestvideo[ext=mp4][protocol!=m3u8]/best[ext=mp4])' '+' '(bestaudio[ext=m4a][protocol!=m3u8]/bestaudio)',
+                'merge_output_format': 'mp4',
+                'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
+            })
 
+    # OUTRAS PLATAFORMAS
+    else:
+        ydl_opts.update({
+            'format': 'bestvideo+bestaudio/best',
+            'merge_output_format': 'mp4',
+        })
 
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+            print("Download concluído!")
 
-         ydl_opts['ffmpeg_location'] = r'C:\ProgramData\chocolatey\bin\ffmpeg.exe' # Substitua pelo caminho do seu ffmpeg (se não tiver é necessário baixar, ou então remover a parte 'ffmpeg_location' e 'preferredcodec': 'mp3'. Pórem, o arquivo voltará com o formato WEBM ao invés de MP3 )
-
-     try:
-      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-       ydl.download([url])
-       print("Download concluído!")
-
-     except yt_dlp.utils.DownloadError as e:
+    except yt_dlp.utils.DownloadError as e:
         print(f"Erro ao processar a URL: {e}")
 
-def ListarFormatos(url):
-    try:
-        with yt_dlp.YoutubeDL({'listformats': None}) as ydl:
-            info = ydl.extract_info(url, download=False)
-            formatos = info.get('formats', [])
-            print("Formatos disponíveis:")
-            for formato in formatos:
-                print(f"ID: {formato['format_id']}, Resolução: {formato.get('resolution', 'N/A')}, Extensão: {formato.get('ext', 'N/A')}")
-    except Exception as e:
-        print(f"Erro ao listar formatos: {e}")
-
+# def ListarFormatos(url):
+#    try:
+#        with yt_dlp.YoutubeDL({'listformats': None}) as ydl:
+#            info = ydl.extract_info(url, download=False)
+#            formatos = info.get('formats', [])
+#            print("Formatos disponíveis:")
+#            for formato in formatos:
+#                print(f"ID: {formato['format_id']}, Resolução: {formato.get('resolution', 'N/A')}, Extensão: {formato.get('ext', 'N/A')}")
+#    except Exception as e:
+#        print(f"Erro ao listar formatos: {e}")
+#
 
 
 
@@ -180,11 +184,14 @@ janela.mainloop()
 # bolar maneira de baixar video de outras midias alem do yt (ok)
 
 # testes
+
 # https://youtu.be/C6h0Qt329jI?si=YEP0SrQrm_g6eUuj
 
 # https://www.tiktok.com/@zueirarrando/video/7436160671470914871?is_from_webapp=1&sender_device=pc
 
-# https://www.youtube.com/shorts/D3eTV1h2JXg?feature=share
-
 # https://www.twitch.tv/tck10/clip/EnticingRacyEndiveWutFace-tN_mAsj_AkhZmIHH
+
+# https://youtu.be/m8o2GrbR3d8?si=uO8M1gccudmLAQDZ Testar a parte de legenda automatica
+
+#  https://youtu.be/QNJL6nfu__Q?si=Zl621fLLweAq-zQQ  testar apenas audio mp3
 
