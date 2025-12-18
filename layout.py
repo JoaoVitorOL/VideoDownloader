@@ -7,6 +7,9 @@
 
 import yt_dlp
 import tkinter as tk
+import os
+import time
+import glob
 import validators # verificar se a url é válida
 from tkinter import Checkbutton, BooleanVar
 from tkinter import ttk
@@ -39,6 +42,9 @@ frame.pack(side="top", padx=10, pady=10)
 # Variável global para o estado do Checkbutton
 apenas_audio = BooleanVar() # audio apenas
 legendas = BooleanVar()
+
+
+
 
 
 # Função para atualizar a tela
@@ -101,38 +107,38 @@ def Update_progress():
 
     progress.destroy()
 
-
 def Download(url):
 
     dominio = urlparse(url).netloc
 
-    # CONFIGURAÇÃO PADRÃO (OUTRAS PLATAFORMAS)
-    ydl_opts = {
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'external_downloader': 'ffmpeg',
-        'hls_prefer_native': False,
+    # ===============================
+    # BASE LOCAL (SEM GLOBAL)
+    # ===============================
+    base_opts = {
+        # JS necessário para player moderno
+        'js_runtimes': {'node': {}},
+        'remote_components': ['ejs:github'],
+
+        # FFmpeg
         'ffmpeg_location': r'C:\ProgramData\chocolatey\bin\ffmpeg.exe',
+
+        # Estabilidade
+        'sleep_interval': 4,
+        'max_sleep_interval': 6,
+        'retries': 5,
+        'fragment_retries': 5,
     }
 
-    # LEGENDAS
-    if legendas.get():
-        ydl_opts.update({
-            'writesubtitles': True,
-            'writeautomaticsub': True,
-            'subtitleslangs': ['pt'],
-            'subtitlesformat': 'srt',
-        })
+    # ===============================
+    # 1) DOWNLOAD VÍDEO / ÁUDIO
+    # ===============================
+    ydl_video_opts = dict(base_opts)
+    ydl_video_opts['outtmpl'] = 'downloads/%(title)s.%(ext)s'
 
-    # YOUTUBE
     if "youtube.com" in dominio or "youtu.be" in dominio:
-
-        # REMOÇÃO OBRIGATÓRIA PARA YOUTUBE
-        ydl_opts.pop('external_downloader', None)
-        ydl_opts.pop('hls_prefer_native', None)
-
         if apenas_audio.get():
-            ydl_opts.update({
-                'format': 'bestaudio[ext=m4a][protocol!=m3u8]/bestaudio',
+            ydl_video_opts.update({
+                'format': 'bestaudio[ext=m4a]/bestaudio',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
@@ -140,28 +146,92 @@ def Download(url):
                 }],
                 'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
             })
-
         else:
-            ydl_opts.update({
-                'format': '(bestvideo[ext=mp4][protocol!=m3u8]/best[ext=mp4])' '+' '(bestaudio[ext=m4a][protocol!=m3u8]/bestaudio)',
+            ydl_video_opts.update({
+                'format': '(bestvideo[ext=mp4]/best[ext=mp4])+(bestaudio[ext=m4a]/bestaudio)',
                 'merge_output_format': 'mp4',
                 'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
             })
-
-    # OUTRAS PLATAFORMAS
     else:
-        ydl_opts.update({
+        ydl_video_opts.update({
             'format': 'bestvideo+bestaudio/best',
             'merge_output_format': 'mp4',
         })
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_video_opts) as ydl:
             ydl.download([url])
-            print("Download concluído!")
-
+            print("Vídeo/áudio baixado com sucesso")
     except yt_dlp.utils.DownloadError as e:
-        print(f"Erro ao processar a URL: {e}")
+        print(f"Erro no download do vídeo: {e}")
+        return
+    
+    time.sleep(35)
+    # ===============================
+    # FUNÇÃO AUXILIAR: VERIFICA SRT
+    # ===============================
+    def legenda_existe():
+        return bool(glob.glob('downloads/youtube/*.srt'))
+
+    # ===============================
+    # 2) LEGENDAS — TENTATIVA SEM JS
+    # ===============================
+    if legendas.get():
+
+        ydl_sub_opts = dict(base_opts)
+        ydl_sub_opts.update({
+            # DESATIVA JS
+            'js_runtimes': {},
+            'remote_components': [],
+
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['pt-BR'],
+            'subtitlesformat': 'srt',
+            'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
+
+            'ignoreerrors': True,
+            'no_warnings': True,
+            'quiet': True,
+
+            'sleep_interval': 6,
+            'max_sleep_interval': 10,
+            'retries': 3,
+            'fragment_retries': 3,
+        })
+
+        with yt_dlp.YoutubeDL(ydl_sub_opts) as ydl:
+            ydl.download([url])
+
+        # ===============================
+        # 3) FALLBACK COM JS (SE NECESSÁRIO)
+        # ===============================
+        if not legenda_existe():
+
+            ydl_sub_opts_js = dict(base_opts)
+            ydl_sub_opts_js.update({
+                # JS ATIVO AQUI
+                'skip_download': True,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+
+                'subtitleslangs': ['pt-BR'],
+                'subtitlesformat': 'srt',
+                'outtmpl': 'downloads/youtube/%(title)s.%(ext)s',
+
+                'ignoreerrors': True,
+                'quiet': True,
+            })
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_sub_opts_js) as ydl:
+                    ydl.download([url])
+                    print("Legenda obtida via fallback JS")
+            except yt_dlp.utils.DownloadError:
+                print("Legenda indisponível para este vídeo")
+        else:
+            print("Legenda obtida sem JS")
 
 # def ListarFormatos(url):
 #    try:
@@ -189,9 +259,9 @@ janela.mainloop()
 
 # https://www.tiktok.com/@zueirarrando/video/7436160671470914871?is_from_webapp=1&sender_device=pc
 
-# https://www.twitch.tv/tck10/clip/EnticingRacyEndiveWutFace-tN_mAsj_AkhZmIHH
+# https://www.twitch.tv/alanzoka/clip/BenevolentTawdryNightingaleCmonBruh-IhSaugl3kdXkyhtj
 
-# https://youtu.be/m8o2GrbR3d8?si=uO8M1gccudmLAQDZ Testar a parte de legenda automatica
+# https://youtu.be/HARmkzmXtfY?si=x02Oa9boc2kYBfif Testar a parte de legenda automatica
 
 #  https://youtu.be/QNJL6nfu__Q?si=Zl621fLLweAq-zQQ  testar apenas audio mp3
 
